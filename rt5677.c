@@ -65,6 +65,7 @@ static struct rt5677_init_reg init_list[] = {
 	{RT5677_PWR_DSP2		, 0x0c00},
 	/* 64Fs in TDM mode */
 	{RT5677_TDM1_CTRL1		, 0x1300},
+	{RT5677_MONO_ADC_DIG_VOL	, 0xafaf},
 
 	/* MX80 bit10 0:MCLK1 1:MCLK2 */
 	{RT5677_GLB_CLK1		, 0x0400},
@@ -2984,16 +2985,17 @@ static const struct snd_soc_dapm_widget rt5677_dapm_widgets[] = {
 		rt5677_sto4_adc_r_mix, ARRAY_SIZE(rt5677_sto4_adc_r_mix)),
 	SND_SOC_DAPM_SUPPLY("adc mono left filter", RT5677_PWR_DIG2,
 		RT5677_PWR_ADC_MF_L_BIT, 0, NULL, 0),
-	SND_SOC_DAPM_MIXER_E("Mono ADC MIXL", SND_SOC_NOPM, 0, 0,
-		rt5677_mono_adc_l_mix, ARRAY_SIZE(rt5677_mono_adc_l_mix),
-		rt5677_mono_adcl_event, SND_SOC_DAPM_PRE_PMD |
-		SND_SOC_DAPM_POST_PMU),
+	SND_SOC_DAPM_MIXER("Mono ADC MIXL", SND_SOC_NOPM, 0, 0,
+		rt5677_mono_adc_l_mix, ARRAY_SIZE(rt5677_mono_adc_l_mix)),
 	SND_SOC_DAPM_SUPPLY("adc mono right filter", RT5677_PWR_DIG2,
 		RT5677_PWR_ADC_MF_R_BIT, 0, NULL, 0),
-	SND_SOC_DAPM_MIXER_E("Mono ADC MIXR", SND_SOC_NOPM, 0, 0,
-		rt5677_mono_adc_r_mix, ARRAY_SIZE(rt5677_mono_adc_r_mix),
-		rt5677_mono_adcr_event, SND_SOC_DAPM_PRE_PMD |
-		SND_SOC_DAPM_POST_PMU),
+	SND_SOC_DAPM_MIXER("Mono ADC MIXR", SND_SOC_NOPM, 0, 0,
+		rt5677_mono_adc_r_mix, ARRAY_SIZE(rt5677_mono_adc_r_mix)),
+
+	SND_SOC_DAPM_ADC("Mono ADC MIXL ADC", NULL, RT5677_MONO_ADC_DIG_VOL,
+		RT5677_L_MUTE_SFT, 1),
+	SND_SOC_DAPM_ADC("Mono ADC MIXR ADC", NULL, RT5677_MONO_ADC_DIG_VOL,
+		RT5677_R_MUTE_SFT, 1),
 
 	/* ADC PGA */
 	SND_SOC_DAPM_PGA("Stereo1 ADC MIXL", SND_SOC_NOPM, 0, 0, NULL, 0),
@@ -3508,12 +3510,15 @@ static const struct snd_soc_dapm_route rt5677_dapm_routes[] = {
 	{ "Mono ADC MIXR", NULL, "adc mono right filter" },
 	{ "adc mono right filter", NULL, "PLL1", check_sysclk1_source },
 
-	{ "Mono ADC MIX", NULL, "Mono ADC MIXL" },
-	{ "Mono ADC MIX", NULL, "Mono ADC MIXR" },
+	{ "Mono ADC MIXL ADC", NULL, "Mono ADC MIXL" },
+	{ "Mono ADC MIXR ADC", NULL, "Mono ADC MIXR" },
+
+	{ "Mono ADC MIX", NULL, "Mono ADC MIXL ADC" },
+	{ "Mono ADC MIX", NULL, "Mono ADC MIXR ADC" },
 
 	{ "VAD ADC Mux", "STO1 ADC MIX L", "Stereo1 ADC MIXL" },
-	{ "VAD ADC Mux", "MONO ADC MIX L", "Mono ADC MIXL" },
-	{ "VAD ADC Mux", "MONO ADC MIX R", "Mono ADC MIXR" },
+	{ "VAD ADC Mux", "MONO ADC MIX L", "Mono ADC MIXL ADC" },
+	{ "VAD ADC Mux", "MONO ADC MIX R", "Mono ADC MIXR ADC" },
 	{ "VAD ADC Mux", "STO2 ADC MIX L", "Stereo2 ADC MIXL" },
 	{ "VAD ADC Mux", "STO3 ADC MIX L", "Stereo3 ADC MIXL" },
 
@@ -3654,14 +3659,14 @@ static const struct snd_soc_dapm_route rt5677_dapm_routes[] = {
 	{ "IB8 Mux", "STO2 ADC MIX L", "Stereo2 ADC MIXL" },
 	{ "IB8 Mux", "STO3 ADC MIX L", "Stereo3 ADC MIXL" },
 	{ "IB8 Mux", "STO4 ADC MIX L", "Stereo4 ADC MIXL" },
-	{ "IB8 Mux", "MONO ADC MIX L", "Mono ADC MIXL" },
+	{ "IB8 Mux", "MONO ADC MIX L", "Mono ADC MIXL ADC" },
 	{ "IB8 Mux", "DACL1 FS", "DAC1 MIXL" },
 
 	{ "IB9 Mux", "STO1 ADC MIX R", "Stereo1 ADC MIXR" },
 	{ "IB9 Mux", "STO2 ADC MIX R", "Stereo2 ADC MIXR" },
 	{ "IB9 Mux", "STO3 ADC MIX R", "Stereo3 ADC MIXR" },
 	{ "IB9 Mux", "STO4 ADC MIX R", "Stereo4 ADC MIXR" },
-	{ "IB9 Mux", "MONO ADC MIX R", "Mono ADC MIXR" },
+	{ "IB9 Mux", "MONO ADC MIX R", "Mono ADC MIXR ADC" },
 	{ "IB9 Mux", "DACR1 FS", "DAC1 MIXR" },
 	{ "IB9 Mux", "DAC1 FS", "DAC1 FS" },
 
