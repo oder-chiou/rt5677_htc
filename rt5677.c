@@ -625,11 +625,12 @@ static unsigned int rt5677_set_vad_source(
 		regmap_write(rt5677->regmap, RT5677_DIG_MISC, 0x0001);
 		regmap_write(rt5677->regmap, RT5677_CLK_TREE_CTRL1, 0x2777);
 		regmap_write(rt5677->regmap, RT5677_GLB_CLK2, 0x0080);
+		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0x0027);
 
 		/* from MCLK1 */
 		regmap_write(rt5677->regmap, RT5677_GLB_CLK1, 0x0080);
 
-		regmap_write(rt5677->regmap, RT5677_DMIC_CTRL1, 0x9545);
+		regmap_write(rt5677->regmap, RT5677_DMIC_CTRL1, 0x95a5);
 		regmap_write(rt5677->regmap, RT5677_VAD_CTRL1, 0x273c);
 		regmap_write(rt5677->regmap, RT5677_IRQ_CTRL2, 0x4000);
 		rt5677_index_write(codec, 0x14, 0x018a);
@@ -653,11 +654,12 @@ static unsigned int rt5677_set_vad_source(
 		regmap_write(rt5677->regmap, RT5677_DIG_MISC, 0x0001);
 		regmap_write(rt5677->regmap, RT5677_CLK_TREE_CTRL1, 0x2777);
 		regmap_write(rt5677->regmap, RT5677_GLB_CLK2, 0x0080);
+		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0x0027);
 
 		/* from MCLK1 */
 		regmap_write(rt5677->regmap, RT5677_GLB_CLK1, 0x0080);
 
-		regmap_write(rt5677->regmap, RT5677_DMIC_CTRL1, 0x5545);
+		regmap_write(rt5677->regmap, RT5677_DMIC_CTRL1, 0x55a5);
 		regmap_write(rt5677->regmap, RT5677_VAD_CTRL1, 0x273c);
 		regmap_write(rt5677->regmap, RT5677_IRQ_CTRL2, 0x4000);
 		rt5677_index_write(codec, 0x14, 0x018a);
@@ -689,9 +691,9 @@ static unsigned int rt5677_set_vad_source(
 		regmap_write(rt5677->regmap, RT5677_VAD_CTRL1, 0x273c);
 		regmap_write(rt5677->regmap, RT5677_IRQ_CTRL2, 0x4000);
 		rt5677_index_write(codec, 0x14, 0x018a);
-		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0xa955);
+		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0xa927);
 		msleep(20);
-		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0xe9d5);
+		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0xe9a7);
 		regmap_write(rt5677->regmap, RT5677_PWR_DIG1, 0x001e);
 		rt5677_index_write(codec, RT5677_CHOP_DAC_ADC, 0x364e);
 		regmap_write(rt5677->regmap, RT5677_PWR_DIG2, 0x6000);
@@ -1338,9 +1340,9 @@ static int set_dmic_clk(struct snd_soc_dapm_widget *w,
 	int rate, red, bound, temp;
 
 	rate = rt5677->lrck[rt5677->aif_pu] << 8;
-	red = 2000000 * 12;
+	red = 2400000 * 12;
 	for (i = 0; i < ARRAY_SIZE(div); i++) {
-		bound = div[i] * 2000000;
+		bound = div[i] * 2400000;
 		if (rate > bound)
 			continue;
 		temp = bound - rate;
