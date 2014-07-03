@@ -4436,11 +4436,13 @@ static ssize_t rt5677_codec_show(struct device *dev,
 	for (i = 0; i <= RT5677_VENDOR_ID2; i++) {
 		if (cnt + RT5677_REG_DISP_LEN >= PAGE_SIZE)
 			break;
-		regmap_read(rt5677->regmap, i, &val);
-		if (!val)
-			continue;
-		cnt += snprintf(buf + cnt, RT5677_REG_DISP_LEN,
-				"#rng%02x  #rv%04x  #rd0\n", i, val);
+
+		if (rt5677_readable_register(NULL, i)) (
+			regmap_read(rt5677->regmap, i, &val);
+
+			cnt += snprintf(buf + cnt, RT5677_REG_DISP_LEN,
+					"%04x: %04x\n", i, val);
+		)
 	}
 
 	if (cnt >= PAGE_SIZE)
@@ -4626,7 +4628,7 @@ static int rt5677_probe(struct snd_soc_codec *codec)
 	ret = device_create_file(codec->dev, &dev_attr_codec_reg);
 	if (ret != 0) {
 		dev_err(codec->dev,
-			"Failed to create codex_reg sysfs files: %d\n", ret);
+			"Failed to create codec_reg sysfs files: %d\n", ret);
 		return ret;
 	}
 
