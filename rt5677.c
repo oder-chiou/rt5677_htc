@@ -2744,10 +2744,6 @@ static int rt5677_pre_event(struct snd_soc_dapm_widget *w,
 	case SND_SOC_DAPM_PRE_PMD:
 		break;
 	case SND_SOC_DAPM_PRE_PMU:
-		regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
-			RT5677_LDO1_SEL_MASK | RT5677_LDO2_SEL_MASK, 0x0055);
-		rt5677_index_update_bits(codec,
-			RT5677_BIAS_CUR4, 0x0f00, 0x0f00);
 		break;
 	default:
 		return 0;
@@ -4510,11 +4506,16 @@ static int rt5677_set_bias_level(struct snd_soc_codec *codec,
 	case SND_SOC_BIAS_PREPARE:
 		if (codec->dapm.bias_level == SND_SOC_BIAS_STANDBY) {
 			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
+				RT5677_LDO1_SEL_MASK | RT5677_LDO2_SEL_MASK,
+				0x36);
+			rt5677_index_update_bits(codec, RT5677_BIAS_CUR4,
+				0x0f00, 0x0f00);
+			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
 				RT5677_PWR_VREF1 | RT5677_PWR_MB |
 				RT5677_PWR_BG | RT5677_PWR_VREF2,
 				RT5677_PWR_VREF1 | RT5677_PWR_MB |
 				RT5677_PWR_BG | RT5677_PWR_VREF2);
-			msleep(20);
+			usleep_range(10000, 15000);
 			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
 				RT5677_PWR_FV1 | RT5677_PWR_FV2,
 				RT5677_PWR_FV1 | RT5677_PWR_FV2);
