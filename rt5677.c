@@ -2825,7 +2825,7 @@ static int rt5677_lout_charge_event(struct snd_soc_dapm_widget *w,
 				RT5677_LDO1_SEL_MASK | RT5677_LDO2_SEL_MASK,
 				RT5677_PWR_VREF1 | RT5677_PWR_MB |
 				RT5677_PWR_LO1 | RT5677_PWR_LO2 |
-				RT5677_PWR_BG | RT5677_PWR_VREF2 | 0x55);
+				RT5677_PWR_BG | RT5677_PWR_VREF2 | 0x36);
 			usleep_range(10000, 15000);
 			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
 				RT5677_PWR_FV1 | RT5677_PWR_FV2,
@@ -4544,7 +4544,7 @@ static int rt5677_set_bias_level(struct snd_soc_codec *codec,
 		regmap_update_bits(rt5677->regmap, RT5677_DIG_MISC, 0x1, 0x0);
 		regmap_write(rt5677->regmap, RT5677_PWR_DIG1, 0x0000);
 		regmap_write(rt5677->regmap, RT5677_PWR_DIG2, 0x0000);
-		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0x0000);
+		regmap_write(rt5677->regmap, RT5677_PWR_ANLG1, 0x0022);
 		regmap_write(rt5677->regmap, RT5677_PWR_ANLG2, 0x0000);
 		rt5677_index_update_bits(codec,
 			RT5677_BIAS_CUR4, 0x0f00, 0x0000);
