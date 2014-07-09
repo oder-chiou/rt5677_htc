@@ -44,8 +44,8 @@
 #define VERSION "0.0.2 alsa 1.0.25"
 #define RT5677_PATH "/system/vendor/firmware/rt5677_"
 
-static int dmic_depop_time = 100;
-module_param(dmic_depop_time, int, 0644);
+static int adc_depop_time = 100;
+module_param(adc_depop_time, int, 0644);
 
 struct rt5677_init_reg {
 	u8 reg;
@@ -2353,14 +2353,8 @@ static int rt5677_mono_adcl_event(struct snd_soc_dapm_widget *w,
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
-	case SND_SOC_DAPM_POST_PMU:
-		regmap_update_bits(rt5677->regmap, RT5677_MONO_ADC_DIG_VOL,
-			RT5677_L_MUTE, 0);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
-		regmap_update_bits(rt5677->regmap, RT5677_MONO_ADC_DIG_VOL,
-			RT5677_L_MUTE,
-			RT5677_L_MUTE);
+	case SND_SOC_DAPM_PRE_PMU:
+		msleep(adc_depop_time);
 		break;
 
 	default:
@@ -2377,14 +2371,8 @@ static int rt5677_mono_adcr_event(struct snd_soc_dapm_widget *w,
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
-	case SND_SOC_DAPM_POST_PMU:
-		regmap_update_bits(rt5677->regmap, RT5677_MONO_ADC_DIG_VOL,
-			RT5677_R_MUTE, 0);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
-		regmap_update_bits(rt5677->regmap, RT5677_MONO_ADC_DIG_VOL,
-			RT5677_R_MUTE,
-			RT5677_R_MUTE);
+	case SND_SOC_DAPM_PRE_PMU:
+		msleep(adc_depop_time);
 		break;
 
 	default:
@@ -2491,7 +2479,6 @@ static int rt5677_set_dmic1_event(struct snd_soc_dapm_widget *w,
 			RT5677_DMIC_1L_LH_FALLING | RT5677_DMIC_1R_LH_RISING);
 		regmap_update_bits(rt5677->regmap, RT5677_DMIC_CTRL1,
 			RT5677_DMIC_1_EN_MASK, RT5677_DMIC_1_EN);
-		msleep(dmic_depop_time);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		regmap_update_bits(rt5677->regmap, RT5677_DMIC_CTRL1,
@@ -2517,7 +2504,6 @@ static int rt5677_set_dmic2_event(struct snd_soc_dapm_widget *w,
 			RT5677_DMIC_2L_LH_FALLING | RT5677_DMIC_2R_LH_RISING);
 		regmap_update_bits(rt5677->regmap, RT5677_DMIC_CTRL1,
 			RT5677_DMIC_2_EN_MASK, RT5677_DMIC_2_EN);
-		msleep(dmic_depop_time);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		regmap_update_bits(rt5677->regmap, RT5677_DMIC_CTRL1,
@@ -2990,10 +2976,12 @@ static const struct snd_soc_dapm_widget rt5677_dapm_widgets[] = {
 	SND_SOC_DAPM_MIXER("Mono ADC MIXR", SND_SOC_NOPM, 0, 0,
 		rt5677_mono_adc_r_mix, ARRAY_SIZE(rt5677_mono_adc_r_mix)),
 
-	SND_SOC_DAPM_ADC("Mono ADC MIXL ADC", NULL, RT5677_MONO_ADC_DIG_VOL,
-		RT5677_L_MUTE_SFT, 1),
-	SND_SOC_DAPM_ADC("Mono ADC MIXR ADC", NULL, RT5677_MONO_ADC_DIG_VOL,
-		RT5677_R_MUTE_SFT, 1),
+	SND_SOC_DAPM_ADC_E("Mono ADC MIXL ADC", NULL, RT5677_MONO_ADC_DIG_VOL,
+		RT5677_L_MUTE_SFT, 1, rt5677_mono_adcl_event,
+		SND_SOC_DAPM_PRE_PMU),
+	SND_SOC_DAPM_ADC_E("Mono ADC MIXR ADC", NULL, RT5677_MONO_ADC_DIG_VOL,
+		RT5677_R_MUTE_SFT, 1, rt5677_mono_adcr_event,
+		SND_SOC_DAPM_PRE_PMU),
 
 	/* ADC PGA */
 	SND_SOC_DAPM_PGA("Stereo1 ADC MIXL", SND_SOC_NOPM, 0, 0, NULL, 0),
