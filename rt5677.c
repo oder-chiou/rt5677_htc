@@ -4485,6 +4485,88 @@ static ssize_t rt5677_codec_store(struct device *dev,
 
 static DEVICE_ATTR(codec_reg, 0666, rt5677_codec_show, rt5677_codec_store);
 
+static ssize_t rt5677_dsp_codec_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct rt5677_priv *rt5677 = i2c_get_clientdata(client);
+	unsigned int val;
+	int cnt = 0, i;
+
+	regcache_cache_only(rt5677->regmap, false);
+	regcache_cache_bypass(rt5677->regmap, true);
+
+	for (i = 0; i <= RT5677_VENDOR_ID2; i++) {
+		if (cnt + RT5677_REG_DISP_LEN >= PAGE_SIZE)
+			break;
+
+		if (rt5677_readable_register(NULL, i))
+			rt5677_dsp_mode_i2c_read(codec, i);
+
+		cnt += snprintf(buf + cnt, RT5677_REG_DISP_LEN,
+				"%04x: %04x\n", i, val);
+	}
+
+	regcache_cache_bypass(rt5677->regmap, false);
+	regcache_cache_only(rt5677->regmap, true);
+
+	if (cnt >= PAGE_SIZE)
+		cnt = PAGE_SIZE - 1;
+
+	return cnt;
+}
+
+static ssize_t rt5677_dsp_codec_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct rt5677_priv *rt5677 = i2c_get_clientdata(client);
+	unsigned int val = 0, addr = 0;
+	int i;
+
+	pr_info("register \"%s\" count = %zu\n", buf, count);
+	for (i = 0; i < count; i++) {
+		if (*(buf + i) <= '9' && *(buf + i) >= '0')
+			addr = (addr << 4) | (*(buf + i) - '0');
+		else if (*(buf + i) <= 'f' && *(buf + i) >= 'a')
+			addr = (addr << 4) | ((*(buf + i) - 'a') + 0xa);
+		else if (*(buf + i) <= 'F' && *(buf + i) >= 'A')
+			addr = (addr << 4) | ((*(buf + i)-'A') + 0xa);
+		else
+			break;
+	}
+
+	for (i = i + 1; i < count; i++) {
+		if (*(buf + i) <= '9' && *(buf + i) >= '0')
+			val = (val << 4) | (*(buf + i) - '0');
+		else if (*(buf + i) <= 'f' && *(buf + i) >= 'a')
+			val = (val << 4) | ((*(buf + i) - 'a') + 0xa);
+		else if (*(buf + i) <= 'F' && *(buf + i) >= 'A')
+			val = (val << 4) | ((*(buf + i) - 'A') + 0xa);
+		else
+			break;
+	}
+
+	pr_info("addr = 0x%02x val = 0x%04x\n", addr, val);
+	if (addr > RT5677_VENDOR_ID2 || val > 0xffff || val < 0)
+		return count;
+
+	regcache_cache_only(rt5677->regmap, false);
+	regcache_cache_bypass(rt5677->regmap, true);
+
+	if (i == count) {
+		val = rt5677_dsp_mode_i2c_read(codec, addr);
+		pr_info("0x%02x = 0x%04x\n", addr, val);
+	} else
+		rt5677_dsp_mode_i2c_write(rt5677->regmap, addr, val);
+
+	regcache_cache_bypass(rt5677->regmap, false);
+	regcache_cache_only(rt5677->regmap, true);
+
+	return count;
+}
+static DEVICE_ATTR(dsp_codec_reg, 0666, rt5677_dsp_codec_show, rt5677_dsp_codec_store);
+
 static int rt5677_set_bias_level(struct snd_soc_codec *codec,
 			enum snd_soc_bias_level level)
 {
@@ -4507,7 +4589,7 @@ static int rt5677_set_bias_level(struct snd_soc_codec *codec,
 				RT5677_PWR_BG | RT5677_PWR_VREF2,
 				RT5677_PWR_VREF1 | RT5677_PWR_MB |
 				RT5677_PWR_BG | RT5677_PWR_VREF2);
-			usleep_range(10000, 15000);
+			usleep_range(15000, 20000);
 			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
 				RT5677_PWR_FV1 | RT5677_PWR_FV2,
 				RT5677_PWR_FV1 | RT5677_PWR_FV2);
@@ -4619,6 +4701,13 @@ static int rt5677_probe(struct snd_soc_codec *codec)
 			"Failed to create codec_reg sysfs files: %d\n", ret);
 		return ret;
 	}
+
+	ret = device_create_file(codec->dev, &dev_attr_dsp_codec_reg);
+	if (ret != 0) {
+		dev_err(codec->dev,
+			"Failed to create dsp_codec_reg sysfs files: %d\n", ret);
+		return ret;
+	}	
 
 	rt5677_set_bias_level(codec, SND_SOC_BIAS_OFF);
 
