@@ -892,9 +892,9 @@ static bool rt5677_volatile_register(struct device *dev, unsigned int reg)
 	case RT5677_VENDOR_ID:
 	case RT5677_VENDOR_ID1:
 	case RT5677_VENDOR_ID2:
-		return 1;
+		return true;
 	default:
-		return 0;
+		return false;
 	}
 }
 
@@ -1104,9 +1104,9 @@ static bool rt5677_readable_register(struct device *dev, unsigned int reg)
 	case RT5677_VENDOR_ID:
 	case RT5677_VENDOR_ID1:
 	case RT5677_VENDOR_ID2:
-		return 1;
+		return true;
 	default:
-		return 0;
+		return false;
 	}
 }
 
