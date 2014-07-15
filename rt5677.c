@@ -4067,6 +4067,7 @@ static int rt5677_prepare(struct snd_pcm_substream *substream,
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 
 	rt5677->aif_pu = dai->id;
+	rt5677->stream = substream->stream;
 	return 0;
 }
 
@@ -4574,6 +4575,12 @@ static int rt5677_set_bias_level(struct snd_soc_codec *codec,
 				RT5677_PWR_BG | RT5677_PWR_VREF2,
 				RT5677_PWR_VREF1 | RT5677_PWR_MB |
 				RT5677_PWR_BG | RT5677_PWR_VREF2);
+			if (rt5677->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+				regmap_update_bits(rt5677->regmap,
+					RT5677_PWR_ANLG1,
+					RT5677_PWR_LO1 | RT5677_PWR_LO2,
+					RT5677_PWR_LO1 | RT5677_PWR_LO2);
+			}
 			usleep_range(15000, 20000);
 			regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG1,
 				RT5677_PWR_FV1 | RT5677_PWR_FV2,

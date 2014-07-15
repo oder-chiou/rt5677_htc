@@ -1469,6 +1469,7 @@ struct rt5677_priv {
 	int vad_mode;
 	int vad_source;
 	unsigned int vad_clock_en;
+	int stream;
 
 	u8 *model_buf;
 	u32 model_len;
