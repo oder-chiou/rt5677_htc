@@ -577,6 +577,134 @@ err:
 	return ret;
 }
 
+/**
+ * rt5677_dsp_addr_write - Write value to memory address on DSP mode.
+ * @codec: SoC audio codec device.
+ * @addr: Address index.
+ * @value: Address data.
+ *
+ *
+ * Returns 0 for success or negative error code.
+ */
+static int rt5677_dsp_addr_write(struct snd_soc_codec *codec,
+		unsigned int addr, unsigned int value)
+{
+	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
+	int ret;
+
+	mutex_lock(&rt5677->index_lock);
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB ,
+		(addr & 0xffff0000) >> 16);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set addr msb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB ,
+		addr & 0xffff);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set addr lsb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB ,
+		(value & 0xffff0000) >> 16);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set data msb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB ,
+		value & 0xffff);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set data lsb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_OP_CODE , 0x0003);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set op code value: %d\n", ret);
+		goto err;
+	}
+
+err:
+	mutex_unlock(&rt5677->index_lock);
+
+	return ret;
+}
+
+/**
+ * rt5677_dsp_addr_read - Read value from memory address on DSP mode.
+ * @codec: SoC audio codec device.
+ * @addr: Address index.
+ *
+ *
+ * Returns Register value or negative error code.
+ */
+static unsigned int rt5677_dsp_addr_read(
+	struct snd_soc_codec *codec, unsigned int addr)
+{
+	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
+	int ret, msb, lsb;
+
+	mutex_lock(&rt5677->index_lock);
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB,
+		(addr & 0xffff0000) >> 16);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set addr msb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB,
+		addr & 0xffff);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set addr lsb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_OP_CODE , 0x0002);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set op code value: %d\n", ret);
+		goto err;
+	}
+
+	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB, &msb);
+	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB, &lsb);
+	ret = (msb << 16) | lsb;
+
+err:
+	mutex_unlock(&rt5677->index_lock);
+
+	return ret;
+}
+
+static unsigned int rt5677_dsp_mbist_test(struct snd_soc_codec *codec)
+{
+	int i;
+
+	rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_INDEX, 0x99);
+	rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_DATA, 0);
+
+	for (i = 0; i < 0x40; i += 4) {
+		rt5677_dsp_addr_write(codec, 0x1801f010 + i, 0x20);
+		rt5677_dsp_addr_write(codec, 0x1801f010 + i, 0x0);
+		rt5677_dsp_addr_write(codec, 0x1801f010 + i, 0x1);
+	}
+
+	for (i = 0; i < 0x40; i += 4) {
+		if (rt5677_dsp_addr_read(codec, 0x1801f010 + i) != 0x101) {
+			rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_INDEX,
+				0x99);
+			rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_DATA, 1);
+			break;
+		}
+	}
+
+	return 0;
+}
+
 static unsigned int rt5677_read_dsp_code_from_file(char *file_path,
 	 u8 **buf)
 {
@@ -834,6 +962,7 @@ static unsigned int rt5677_set_vad(
 		regcache_cache_only(rt5677->regmap, false);
 		regcache_cache_bypass(rt5677->regmap, true);
 		rt5677_set_vad_source(codec, rt5677->vad_source);
+		rt5677_dsp_mbist_test(codec);
 
 		rt5677_load_dsp_from_file(codec);
 
