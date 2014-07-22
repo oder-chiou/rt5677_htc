@@ -44,6 +44,13 @@
 #define VERSION "0.0.2 alsa 1.0.25"
 #define RT5677_PATH "/system/vendor/firmware/rt5677_"
 
+#define RT5677_DMIC_CLK_MAX 2048000
+
+static int dmic_depop_time = 100;
+module_param(dmic_depop_time, int, 0644);
+static int amic_depop_time = 150;
+module_param(amic_depop_time, int, 0644);
+
 struct rt5677_init_reg {
 	u8 reg;
 	u16 val;
@@ -1337,9 +1344,9 @@ static int set_dmic_clk(struct snd_soc_dapm_widget *w,
 	int rate, red, bound, temp;
 
 	rate = rt5677->lrck[rt5677->aif_pu] << 8;
-	red = 2400000 * 12;
+	red = RT5677_DMIC_CLK_MAX * 12;
 	for (i = 0; i < ARRAY_SIZE(div); i++) {
-		bound = div[i] * 2400000;
+		bound = div[i] * RT5677_DMIC_CLK_MAX;
 		if (rate > bound)
 			continue;
 		temp = bound - rate;
@@ -2354,9 +2361,9 @@ static int rt5677_mono_adcl_event(struct snd_soc_dapm_widget *w,
 	case SND_SOC_DAPM_PRE_PMU:
 		regmap_read(rt5677->regmap, RT5677_DMIC_CTRL1, &val);
 		if (val & RT5677_DMIC_1_EN_MASK)
-			msleep(100);
+			msleep(dmic_depop_time);
 		else
-			msleep(150);
+			msleep(amic_depop_time);
 		break;
 
 	default:
@@ -2377,9 +2384,9 @@ static int rt5677_mono_adcr_event(struct snd_soc_dapm_widget *w,
 	case SND_SOC_DAPM_PRE_PMU:
 		regmap_read(rt5677->regmap, RT5677_DMIC_CTRL1, &val);
 		if (val & RT5677_DMIC_2_EN_MASK)
-			msleep(100);
+			msleep(dmic_depop_time);
 		else
-			msleep(150);
+			msleep(amic_depop_time);
 		break;
 
 	default:
@@ -2822,11 +2829,6 @@ static const struct snd_soc_dapm_widget rt5677_dapm_widgets[] = {
 
 	/* Input Side */
 	/* micbias */
-/*
-	SND_SOC_DAPM_SUPPLY_S("micbias1", 0, RT5677_PWR_ANLG2,
-		RT5677_PWR_MB1_BIT, 0, rt5677_set_micbias1_event,
-		SND_SOC_DAPM_POST_PMU),
-*/
 	/* Input Lines */
 	SND_SOC_DAPM_INPUT("DMIC L1"),
 	SND_SOC_DAPM_INPUT("DMIC R1"),
@@ -3307,12 +3309,7 @@ static const struct snd_soc_dapm_route rt5677_dapm_routes[] = {
 	{ "BST1", NULL, "IN1N" },
 	{ "BST2", NULL, "IN2P" },
 	{ "BST2", NULL, "IN2N" },
-/*
-	{ "IN1P", NULL, "micbias1" },
-	{ "IN1N", NULL, "micbias1" },
-	{ "IN2P", NULL, "micbias1" },
-	{ "IN2N", NULL, "micbias1" },
-*/
+
 	{ "ADC 1", NULL, "BST1" },
 	{ "ADC 1", NULL, "ADC 1 power" },
 	{ "ADC 1", NULL, "ADC clock" },
@@ -4485,11 +4482,12 @@ static ssize_t rt5677_dsp_codec_show(struct device *dev,
 		if (cnt + RT5677_REG_DISP_LEN >= PAGE_SIZE)
 			break;
 
-		if (rt5677_readable_register(NULL, i))
-			rt5677_dsp_mode_i2c_read(codec, i);
+		if (rt5677_readable_register(NULL, i)) {
+			val = rt5677_dsp_mode_i2c_read(codec, i);
 
-		cnt += snprintf(buf + cnt, RT5677_REG_DISP_LEN,
-				"%04x: %04x\n", i, val);
+			cnt += snprintf(buf + cnt, RT5677_REG_DISP_LEN,
+					"%04x: %04x\n", i, val);
+		}
 	}
 
 	regcache_cache_bypass(rt5677->regmap, false);
@@ -4544,7 +4542,7 @@ static ssize_t rt5677_dsp_codec_store(struct device *dev,
 		val = rt5677_dsp_mode_i2c_read(codec, addr);
 		pr_info("0x%02x = 0x%04x\n", addr, val);
 	} else
-		rt5677_dsp_mode_i2c_write(rt5677->regmap, addr, val);
+		rt5677_dsp_mode_i2c_write(codec, addr, val);
 
 	regcache_cache_bypass(rt5677->regmap, false);
 	regcache_cache_only(rt5677->regmap, true);
@@ -4699,7 +4697,7 @@ static int rt5677_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev,
 			"Failed to create dsp_codec_reg sysfs files: %d\n", ret);
 		return ret;
-	}	
+	}
 
 	rt5677_set_bias_level(codec, SND_SOC_BIAS_OFF);
 
