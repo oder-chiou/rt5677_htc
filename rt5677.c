@@ -638,15 +638,17 @@ err:
  * rt5677_dsp_addr_read - Read value from memory address on DSP mode.
  * @codec: SoC audio codec device.
  * @addr: Address index.
+ * @value: Address data.
  *
  *
- * Returns Register value or negative error code.
+ * Returns 0 for success or negative error code.
  */
-static unsigned int rt5677_dsp_addr_read(
-	struct snd_soc_codec *codec, unsigned int addr)
+static int rt5677_dsp_addr_read(
+	struct snd_soc_codec *codec, unsigned int addr, unsigned int *value)
 {
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
-	int ret, msb, lsb;
+	int ret;
+	unsigned int msb, lsb;
 
 	mutex_lock(&rt5677->index_lock);
 
@@ -672,7 +674,7 @@ static unsigned int rt5677_dsp_addr_read(
 
 	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB, &msb);
 	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB, &lsb);
-	ret = (msb << 16) | lsb;
+	*value = (msb << 16) | lsb;
 
 err:
 	mutex_unlock(&rt5677->index_lock);
@@ -682,7 +684,7 @@ err:
 
 static unsigned int rt5677_dsp_mbist_test(struct snd_soc_codec *codec)
 {
-	int i;
+	unsigned int i, value;
 
 	rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_INDEX, 0x99);
 	rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_DATA, 0);
@@ -694,7 +696,8 @@ static unsigned int rt5677_dsp_mbist_test(struct snd_soc_codec *codec)
 	}
 
 	for (i = 0; i < 0x40; i += 4) {
-		if (rt5677_dsp_addr_read(codec, 0x1801f010 + i) != 0x101) {
+		rt5677_dsp_addr_read(codec, 0x1801f010 + i, &value);
+		if (value != 0x101) {
 			rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_INDEX,
 				0x99);
 			rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_DATA, 1);
