@@ -21,6 +21,7 @@
 #include <linux/spi/spi.h>
 #include <linux/of_gpio.h>
 #include <linux/elf.h>
+#include <linux/firmware.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
@@ -30,6 +31,8 @@
 #include <sound/tlv.h>
 
 #define RTK_IOCTL
+#define RT5677_DMIC_CLK_MAX 2400000
+#define RT5677_PRIV_MIC_BUF_SIZE (64 * 1024)
 
 #ifdef RTK_IOCTL
 #if defined(CONFIG_SND_HWDEP) || defined(CONFIG_SND_HWDEP_MODULE)
@@ -42,9 +45,7 @@
 #include "rt5677-spi.h"
 
 #define VERSION "0.0.2 alsa 1.0.25"
-#define RT5677_PATH "/system/vendor/firmware/rt5677_"
-
-#define RT5677_DMIC_CLK_MAX 2048000
+#define RT5677_PATH "rt5677_"
 
 static int dmic_depop_time = 100;
 module_param(dmic_depop_time, int, 0644);
@@ -449,41 +450,51 @@ err:
 }
 
 /**
- * rt5677_dsp_mode_i2c_write - Write register on DSP mode.
+ * rt5677_dsp_mode_i2c_write_address - Write value to address on DSP mode.
  * @codec: SoC audio codec device.
- * @reg: Register index.
- * @value: Register data.
+ * @address: Target address.
+ * @value: Target data.
  *
  *
  * Returns 0 for success or negative error code.
  */
-static int rt5677_dsp_mode_i2c_write(struct snd_soc_codec *codec,
-		unsigned int reg, unsigned int value)
+static int rt5677_dsp_mode_i2c_write_address(struct snd_soc_codec *codec,
+		unsigned int address, unsigned int value, unsigned int opcode)
 {
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 	int ret;
 
 	mutex_lock(&rt5677->index_lock);
 
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB, 0x1802);
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB,
+			   address >> 16);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set addr msb value: %d\n", ret);
 		goto err;
 	}
 
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB, reg * 2);
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB,
+			   address & 0xFFFF);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set addr lsb value: %d\n", ret);
 		goto err;
 	}
 
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB, value);
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB,
+			   value >> 16);
+	if (ret < 0) {
+		dev_err(codec->dev, "Failed to set data msb value: %d\n", ret);
+		goto err;
+	}
+
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB,
+			   value & 0xFFFF);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set data lsb value: %d\n", ret);
 		goto err;
 	}
 
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_OP_CODE, 0x0001);
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_OP_CODE, opcode);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set op code value: %d\n", ret);
 		goto err;
@@ -496,28 +507,30 @@ err:
 }
 
 /**
- * rt5677_dsp_mode_i2c_read - Read register on DSP mode.
+ * rt5677_dsp_mode_i2c_read_address - Read value from address on DSP mode.
  * @codec: SoC audio codec device.
- * @reg: Register index.
- *
- *
- * Returns Register value or negative error code.
+ * @addr: Address index.
+ * @value: Address data.
+ * Returns 0 for success or negative error code.
  */
-static unsigned int rt5677_dsp_mode_i2c_read(
-	struct snd_soc_codec *codec, unsigned int reg)
+static int rt5677_dsp_mode_i2c_read_address(
+	struct snd_soc_codec *codec, unsigned int addr, unsigned int *value)
 {
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 	int ret;
+	unsigned int msb, lsb;
 
 	mutex_lock(&rt5677->index_lock);
 
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB, 0x1802);
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB,
+		(addr & 0xffff0000) >> 16);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set addr msb value: %d\n", ret);
 		goto err;
 	}
 
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB, reg * 2);
+	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB,
+		addr & 0xffff);
 	if (ret < 0) {
 		dev_err(codec->dev, "Failed to set addr lsb value: %d\n", ret);
 		goto err;
@@ -529,7 +542,9 @@ static unsigned int rt5677_dsp_mode_i2c_read(
 		goto err;
 	}
 
-	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB, &ret);
+	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB, &msb);
+	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB, &lsb);
+	*value = (msb << 16) | lsb;
 
 err:
 	mutex_unlock(&rt5677->index_lock);
@@ -538,6 +553,39 @@ err:
 
 }
 
+/**
+ * rt5677_dsp_mode_i2c_write - Write register on DSP mode.
+ * @codec: SoC audio codec device.
+ * @reg: Register index.
+ * @value: Register data.
+ *
+ *
+ * Returns 0 for success or negative error code.
+ */
+static int rt5677_dsp_mode_i2c_write(struct snd_soc_codec *codec,
+		unsigned int reg, unsigned int value)
+{
+	return rt5677_dsp_mode_i2c_write_address(codec, 0x18020000 + reg * 2,
+		value, 0x0001);
+}
+
+/**
+ * rt5677_dsp_mode_i2c_read - Read register on DSP mode.
+ * @codec: SoC audio codec device.
+ * @reg: Register index.
+ *
+ *
+ * Returns Register value.
+ */
+static unsigned int rt5677_dsp_mode_i2c_read(
+	struct snd_soc_codec *codec, unsigned int reg)
+{
+	unsigned int value;
+
+	rt5677_dsp_mode_i2c_read_address(codec, 0x18020000 + reg * 2,
+		&value);
+	return value;
+}
 /**
  * rt5677_dsp_mode_i2c_update_bits - update register on DSP mode.
  * @codec: audio codec
@@ -577,165 +625,55 @@ err:
 	return ret;
 }
 
-/**
- * rt5677_dsp_addr_write - Write value to memory address on DSP mode.
- * @codec: SoC audio codec device.
- * @addr: Address index.
- * @value: Address data.
- *
- *
- * Returns 0 for success or negative error code.
- */
-static int rt5677_dsp_addr_write(struct snd_soc_codec *codec,
-		unsigned int addr, unsigned int value)
-{
-	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
-	int ret;
-
-	mutex_lock(&rt5677->index_lock);
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB ,
-		(addr & 0xffff0000) >> 16);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set addr msb value: %d\n", ret);
-		goto err;
-	}
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB ,
-		addr & 0xffff);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set addr lsb value: %d\n", ret);
-		goto err;
-	}
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB ,
-		(value & 0xffff0000) >> 16);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set data msb value: %d\n", ret);
-		goto err;
-	}
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB ,
-		value & 0xffff);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set data lsb value: %d\n", ret);
-		goto err;
-	}
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_OP_CODE , 0x0003);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set op code value: %d\n", ret);
-		goto err;
-	}
-
-err:
-	mutex_unlock(&rt5677->index_lock);
-
-	return ret;
-}
-
-/**
- * rt5677_dsp_addr_read - Read value from memory address on DSP mode.
- * @codec: SoC audio codec device.
- * @addr: Address index.
- * @value: Address data.
- *
- *
- * Returns 0 for success or negative error code.
- */
-static int rt5677_dsp_addr_read(
-	struct snd_soc_codec *codec, unsigned int addr, unsigned int *value)
-{
-	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
-	int ret;
-	unsigned int msb, lsb;
-
-	mutex_lock(&rt5677->index_lock);
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_MSB,
-		(addr & 0xffff0000) >> 16);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set addr msb value: %d\n", ret);
-		goto err;
-	}
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_ADDR_LSB,
-		addr & 0xffff);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set addr lsb value: %d\n", ret);
-		goto err;
-	}
-
-	ret = regmap_write(rt5677->regmap, RT5677_DSP_I2C_OP_CODE , 0x0002);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set op code value: %d\n", ret);
-		goto err;
-	}
-
-	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_MSB, &msb);
-	regmap_read(rt5677->regmap, RT5677_DSP_I2C_DATA_LSB, &lsb);
-	*value = (msb << 16) | lsb;
-
-err:
-	mutex_unlock(&rt5677->index_lock);
-
-	return ret;
-}
-
 static unsigned int rt5677_dsp_mbist_test(struct snd_soc_codec *codec)
 {
 	unsigned int i, value;
+	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 
 	rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_INDEX, 0x99);
 	rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_DATA, 0);
 
 	for (i = 0; i < 0x40; i += 4) {
-		rt5677_dsp_addr_write(codec, 0x1801f010 + i, 0x20);
-		rt5677_dsp_addr_write(codec, 0x1801f010 + i, 0x0);
-		rt5677_dsp_addr_write(codec, 0x1801f010 + i, 0x1);
+		rt5677_dsp_mode_i2c_write_address(codec, 0x1801f010 + i, 0x20,
+			0x0003);
+		rt5677_dsp_mode_i2c_write_address(codec, 0x1801f010 + i, 0x0,
+			0x0003);
+		rt5677_dsp_mode_i2c_write_address(codec, 0x1801f010 + i, 0x1,
+			0x0003);
 	}
 
+	pr_info("Testing MBIST\n");
 	for (i = 0; i < 0x40; i += 4) {
-		rt5677_dsp_addr_read(codec, 0x1801f010 + i, &value);
+		rt5677_dsp_mode_i2c_read_address(codec, 0x1801f010 + i, &value);
 		if (value != 0x101) {
 			rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_INDEX,
 				0x99);
 			rt5677_dsp_mode_i2c_write(codec, RT5677_PRIV_DATA, 1);
+			pr_info("MBIST test failed\n");
 			break;
 		}
 	}
 
+	rt5677_dsp_mode_i2c_write(codec, RT5677_PWR_DSP1, 0x07fd);
+	msleep(200);
+	regmap_write(rt5677->regmap, RT5677_PWR_DSP1, 0x07ff);
+
 	return 0;
 }
 
-static unsigned int rt5677_read_dsp_code_from_file(char *file_path,
-	 u8 **buf)
+static unsigned int rt5677_read_dsp_code_from_file(const struct firmware **fwp,
+			const char *file_path, struct snd_soc_codec *codec)
 {
-	loff_t pos = 0;
-	unsigned int file_size = 0;
-	struct file *fp;
+	int ret;
 
 	pr_debug("%s\n", __func__);
 
-	fp = filp_open(file_path, O_RDONLY, 0);
-	if (!IS_ERR(fp)) {
-		file_size = vfs_llseek(fp, pos, SEEK_END);
-		*buf = kzalloc(file_size, GFP_KERNEL);
-		if (*buf == NULL) {
-			pr_err("%s: kzalloc size=0x%x fail\n", __func__,
-				file_size);
-			filp_close(fp, 0);
-			return 0;
-		}
-
-		kernel_read(fp, pos, *buf, file_size);
-		filp_close(fp, 0);
-
-		return file_size;
-	} else {
-		pr_err("%s: filp_open fail: %s\n", __func__, file_path);
+	ret = request_firmware(fwp, file_path, codec->dev);
+	if (ret != 0) {
+		pr_err("Failed to request '%s' = %d\n", file_path, ret);
+		return 0;
 	}
-	return 0;
+	return (*fwp)->size;
 }
 
 static unsigned int rt5677_set_vad_source(
@@ -844,7 +782,7 @@ static unsigned int rt5677_set_vad_source(
 	return 0;
 }
 
-static int rt5677_parse_and_load_dsp(u8 *buf, unsigned int len)
+static int rt5677_parse_and_load_dsp(const u8 *buf, unsigned int len)
 {
 	Elf32_Ehdr *elf_hdr;
 	Elf32_Phdr *pr_hdr;
@@ -885,39 +823,39 @@ static int rt5677_parse_and_load_dsp(u8 *buf, unsigned int len)
 static int rt5677_load_dsp_from_file(struct snd_soc_codec *codec)
 {
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
-	u8 *buf;
 	unsigned int len;
+	const struct firmware *fwp;
 	char file_path[64];
 	int err = 0;
 #ifdef DEBUG
 	int ret = 0;
 #endif
 
-	sprintf(file_path, RT5677_PATH "elf_%s",
-		dsp_vad_suffix);
-	len = rt5677_read_dsp_code_from_file(file_path, &buf);
+	sprintf(file_path, RT5677_PATH "elf_%s", dsp_vad_suffix);
+	len = rt5677_read_dsp_code_from_file(&fwp, file_path, codec);
 	if (len) {
-		pr_debug("load %s ok\n", file_path);
-		err = rt5677_parse_and_load_dsp(buf, len);
+		pr_debug("load %s [%u] ok\n", file_path, len);
+		err = rt5677_parse_and_load_dsp(fwp->data, len);
+		release_firmware(fwp);
 	} else {
 		sprintf(file_path, RT5677_PATH "0x50000000_%s",
 			dsp_vad_suffix);
-		len = rt5677_read_dsp_code_from_file(file_path, &buf);
+		len = rt5677_read_dsp_code_from_file(&fwp, file_path, codec);
 		if (len) {
 			pr_debug("load %s ok\n", file_path);
-			rt5677_spi_write(0x50000000, buf, len);
-			kfree(buf);
+			rt5677_spi_write(0x50000000, fwp->data, len);
+			release_firmware(fwp);
 		} else {
 			pr_err("load %s fail\n", file_path);
 		}
 
 		sprintf(file_path, RT5677_PATH "0x60000000_%s",
 			dsp_vad_suffix);
-		len = rt5677_read_dsp_code_from_file(file_path, &buf);
+		len = rt5677_read_dsp_code_from_file(&fwp, file_path, codec);
 		if (len) {
 			pr_debug("load %s ok\n", file_path);
-			rt5677_spi_write(0x60000000, buf, len);
-			kfree(buf);
+			rt5677_spi_write(0x60000000, fwp->data, len);
+			release_firmware(fwp);
 		} else {
 			pr_err("load %s fail\n", file_path);
 		}
@@ -931,13 +869,13 @@ static int rt5677_load_dsp_from_file(struct snd_soc_codec *codec)
 
 #ifdef DEBUG
 	msleep(50);
-	regmap_write(rt5677->regmap, 0x01, 0x0000);
-	regmap_write(rt5677->regmap, 0x02, 0x5000);
+	regmap_write(rt5677->regmap, 0x01, 0x0520);
+	regmap_write(rt5677->regmap, 0x02, 0x5ffe);
 	regmap_write(rt5677->regmap, 0x00, 0x0002);
 	regmap_read(rt5677->regmap, 0x03, &ret);
-	dev_err(codec->dev, "rt5677 0x50000000 0x03 %x\n", ret);
+	dev_err(codec->dev, "rt5677 0x5ffe0520 0x03 %x\n", ret);
 	regmap_read(rt5677->regmap, 0x04, &ret);
-	dev_err(codec->dev, "rt5677 0x50000000 0x04 %x\n", ret);
+	dev_err(codec->dev, "rt5677 0x5ffe0520 0x04 %x\n", ret);
 
 	regmap_write(rt5677->regmap, 0x01, 0x0000);
 	regmap_write(rt5677->regmap, 0x02, 0x6000);
@@ -966,6 +904,17 @@ static unsigned int rt5677_set_vad(
 		regcache_cache_bypass(rt5677->regmap, true);
 		rt5677_set_vad_source(codec, rt5677->vad_source);
 		rt5677_dsp_mbist_test(codec);
+
+		/* Reset the mic buffer read pointer. */
+		rt5677->mic_read_offset = 0;
+
+		/* Boot the firmware from IRAM instead of SRAM0. */
+		rt5677_dsp_mode_i2c_write_address(codec, RT5677_DSP_BOOT_VECTOR,
+						  0x0009, 0x0003);
+		rt5677_dsp_mode_i2c_write_address(codec, RT5677_DSP_BOOT_VECTOR,
+						  0x0019, 0x0003);
+		rt5677_dsp_mode_i2c_write_address(codec, RT5677_DSP_BOOT_VECTOR,
+						  0x0009, 0x0003);
 
 		rt5677_load_dsp_from_file(codec);
 
@@ -2883,9 +2832,6 @@ static int rt5677_post_event(struct snd_soc_dapm_widget *w,
 static int rt5677_pre_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
-	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
-
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMD:
 		break;
@@ -2933,26 +2879,6 @@ static int rt5677_set_pll2_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int rt5677_set_micbias1_event(struct snd_soc_dapm_widget *w,
-	struct snd_kcontrol *kcontrol, int event)
-{
-	struct snd_soc_codec *codec = w->codec;
-	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
-
-	switch (event) {
-	case SND_SOC_DAPM_POST_PMU:
-		regmap_update_bits(rt5677->regmap, RT5677_PWR_ANLG2,
-			RT5677_PWR_CLK_MB1 | RT5677_PWR_PP_MB1 |
-			RT5677_PWR_CLK_MB, RT5677_PWR_CLK_MB1 |
-			RT5677_PWR_PP_MB1 | RT5677_PWR_CLK_MB);
-		break;
-	default:
-		return 0;
-	}
-
-	return 0;
-}
-
 static const struct snd_soc_dapm_widget rt5677_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY_S("PLL1", 0, RT5677_PWR_ANLG2, RT5677_PWR_PLL1_BIT,
 		0, rt5677_set_pll1_event, SND_SOC_DAPM_POST_PMU),
@@ -2960,7 +2886,6 @@ static const struct snd_soc_dapm_widget rt5677_dapm_widgets[] = {
 		0, rt5677_set_pll2_event, SND_SOC_DAPM_POST_PMU),
 
 	/* Input Side */
-	/* micbias */
 	/* Input Lines */
 	SND_SOC_DAPM_INPUT("DMIC L1"),
 	SND_SOC_DAPM_INPUT("DMIC R1"),
@@ -4121,7 +4046,8 @@ static int get_clk_info(int sclk, int rate)
 static int rt5677_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params, struct snd_soc_dai *dai)
 {
-	struct snd_soc_codec *codec = dai->codec;
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_codec *codec = rtd->codec;
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 	unsigned int val_len = 0, val_clk, mask_clk;
 	int pre_div, bclk_ms, frame_size;
@@ -4190,7 +4116,8 @@ static int rt5677_hw_params(struct snd_pcm_substream *substream,
 static int rt5677_prepare(struct snd_pcm_substream *substream,
 				struct snd_soc_dai *dai)
 {
-	struct snd_soc_codec *codec = dai->codec;
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_codec *codec = rtd->codec;
 	struct rt5677_priv *rt5677 = snd_soc_codec_get_drvdata(codec);
 
 	rt5677->aif_pu = dai->id;
@@ -4868,7 +4795,7 @@ static int rt5677_resume(struct snd_soc_codec *codec)
 static void rt5677_shutdown(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *dai)
 {
-	pr_info("enter %s\n", __func__);
+	pr_debug("enter %s\n", __func__);
 }
 
 #define RT5677_STEREO_RATES SNDRV_PCM_RATE_8000_96000
@@ -5026,6 +4953,13 @@ static int rt5677_i2c_probe(struct i2c_client *i2c,
 	if (NULL == rt5677)
 		return -ENOMEM;
 
+	rt5677->mic_buf_len = RT5677_PRIV_MIC_BUF_SIZE;
+	rt5677->mic_buf = kmalloc(rt5677->mic_buf_len, GFP_KERNEL);
+	if (NULL == rt5677->mic_buf) {
+		kfree(rt5677);
+		return -ENOMEM;
+	}
+
 	i2c_set_clientdata(i2c, rt5677);
 
 	rt5677->regmap = devm_regmap_init_i2c(i2c, &rt5677_regmap);
@@ -5077,6 +5011,7 @@ static int rt5677_i2c_remove(struct i2c_client *i2c)
 	struct rt5677_priv *rt5677 = i2c_get_clientdata(i2c);
 
 	snd_soc_unregister_codec(&i2c->dev);
+	kfree(rt5677->mic_buf);
 	kfree(rt5677->model_buf);
 	kfree(rt5677);
 	return 0;
