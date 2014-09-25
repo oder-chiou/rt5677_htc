@@ -584,7 +584,7 @@ static unsigned int rt5677_dsp_mode_i2c_read(
 
 	rt5677_dsp_mode_i2c_read_address(codec, 0x18020000 + reg * 2,
 		&value);
-	return value;
+	return value & 0xffff;
 }
 /**
  * rt5677_dsp_mode_i2c_update_bits - update register on DSP mode.
